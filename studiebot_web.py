@@ -1,4 +1,5 @@
 import re
+import time
 import streamlit as st
 from google import genai
 
@@ -20,6 +21,24 @@ if not API_KEY:
     st.stop()
 
 client = genai.Client(api_key=API_KEY)
+
+MODELLEN = ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
+
+def vraag_gemini(prompt):
+    """Probeert het hoofdmodel een paar keer (bij overbelasting), daarna een tweede model."""
+    laatste_fout = None
+    for model in MODELLEN:
+        for poging in range(4):
+            try:
+                return client.models.generate_content(model=model, contents=prompt).text
+            except Exception as e:
+                laatste_fout = e
+                tekst = str(e)
+                if "503" in tekst or "429" in tekst or "UNAVAILABLE" in tekst:
+                    time.sleep(2 * (poging + 1))
+                else:
+                    break
+    raise laatste_fout
 
 # "slaat_op" bewaart het antwoord apart, zodat we het in de AI-opdracht kunnen gebruiken.
 # "alleen_bij_diploma" laat een vraag alleen zien bij bepaalde diploma's.
@@ -90,6 +109,9 @@ html, body, [class*="css"]  { font-family: 'Work Sans', sans-serif; }
 .info-box { background: #F3F7F5; border-left: 4px solid #3D7A72; border-radius: 6px; padding: 1.1rem 1.4rem; margin-top: 0.8rem; }
 .info-box p { color:#28362F; margin: 0.35rem 0; }
 .subkop { margin-top: 0.9rem !important; color:#16324F !important; }
+.feedback-card { background: #FFF8E8; border-left: 4px solid #D9A441; border-radius: 8px; padding: 1.3rem 1.6rem; margin: 1.6rem 0 0.8rem 0; }
+.feedback-card h4 { font-family: 'Fraunces', serif; color: #16324F; margin: 0 0 0.4rem 0; font-size: 1.15rem; }
+.feedback-card p { color:#3A473F; margin: 0.2rem 0; font-size: 0.93rem; }
 
 div.stButton > button { background-color: #16324F; color: #FFFFFF; border: none; border-radius: 6px; padding: 0.5rem 1.5rem; font-weight: 500; }
 div.stButton > button:hover { background-color: #0F233A; color: #FFFFFF; }
@@ -290,8 +312,7 @@ specifieke antwoorden van de leerling hierboven. Gebruik voor elke opleiding een
 met "### Naam van de opleiding"."""
 
         try:
-            response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
-            st.session_state.advies = response.text
+            st.session_state.advies = vraag_gemini(prompt)
         except Exception as e:
             st.session_state.advies = (
                 "Er ging iets mis bij het ophalen van het advies. Dit is vaak tijdelijk "
@@ -336,10 +357,7 @@ in Nederland, voor een scholier die uitsluitend opleidingen op niveau {niveau_te
 Sluit af met een korte zin dat exacte toelatingseisen en open-dagdata per instelling en
 per jaar verschillen, en dat de leerling dit altijd moet checken op de officiële website."""
                 try:
-                    info_response = client.models.generate_content(
-                        model="gemini-3.1-flash-lite", contents=info_prompt
-                    )
-                    st.session_state.extra_info[studie['naam']] = info_response.text
+                    st.session_state.extra_info[studie['naam']] = vraag_gemini(info_prompt)
                 except Exception as e:
                     st.session_state.extra_info[studie['naam']] = (
                         f"Kon deze info nu niet ophalen (server overbelast). Probeer het zo nog eens.\n\n"
@@ -349,6 +367,11 @@ per jaar verschillen, en dat de leerling dit altijd moet checken op de officiël
         if studie['naam'] in st.session_state.extra_info:
             info_html = markdown_naar_html(st.session_state.extra_info[studie['naam']])
             st.markdown(f'<div class="info-box">{info_html}</div>', unsafe_allow_html=True)
+
+    formulier_url = geheim("FORMULIER_URL")
+    if formulier_url:
+        st.markdown('<div class="feedback-card"><h4>Help mijn onderzoek</h4><p>Past dit advies bij je? Beantwoord een paar korte vragen (ongeveer 2 minuten). Het formulier is anoniem en bevat jouw antwoorden op de vragen niet.</p></div>', unsafe_allow_html=True)
+        st.link_button("Geef je mening", formulier_url, type="primary")
 
     st.write("")
     if st.button("Opnieuw beginnen"):
@@ -360,3 +383,4 @@ per jaar verschillen, en dat de leerling dit altijd moet checken op de officiël
         st.session_state.profiel = None
         st.session_state.niveaus = []
         st.rerun()
+
