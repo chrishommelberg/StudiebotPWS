@@ -1,6 +1,7 @@
 import re
 import time
 import html
+import urllib.parse
 import datetime
 import streamlit as st
 from google import genai
@@ -27,6 +28,8 @@ client = genai.Client(api_key=API_KEY)
 
 MODELLEN = ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
 ZOEK_TOOL = types.Tool(google_search=types.GoogleSearch())
+LIVE_ZOEKEN = str(geheim("LIVE_ZOEKEN") or "").lower() == "ja"  # alleen aan met een betaald Gemini-account
+
 
 def _bronnen_uit(response):
     """Haalt de websites op die Gemini bij het zoeken heeft gebruikt."""
@@ -41,10 +44,15 @@ def _bronnen_uit(response):
         pass
     return bronnen[:5]
 
-def _probeer(prompt, zoeken):
+def _probeer(prompt, zoeken, seed=None):
     """Probeert de modellen na elkaar, met wachttijd bij overbelasting."""
     laatste_fout = None
-    config = types.GenerateContentConfig(tools=[ZOEK_TOOL]) if zoeken else None
+    if zoeken:
+        config = types.GenerateContentConfig(tools=[ZOEK_TOOL])
+    elif seed is not None:
+        config = types.GenerateContentConfig(seed=seed)  # temperatuur blijft standaard (aanbevolen voor Gemini 3)
+    else:
+        config = None
     for model in MODELLEN:
         for poging in range(4):
             try:
@@ -56,18 +64,22 @@ def _probeer(prompt, zoeken):
             except Exception as e:
                 laatste_fout = e
                 tekst = str(e)
+                if zoeken and ("429" in tekst or "RESOURCE_EXHAUSTED" in tekst):
+                    raise  # zoeken is niet beschikbaar op dit account; niet blijven wachten
                 if "503" in tekst or "429" in tekst or "UNAVAILABLE" in tekst:
                     time.sleep(2 * (poging + 1))
                 else:
                     break
     raise laatste_fout
 
-def vraag_gemini(prompt, zoeken=False, veilige_prompt=None):
+def vraag_gemini(prompt, zoeken=False, veilige_prompt=None, seed=None):
     """Geeft (tekst, bronnen, live, zoekfout).
     Met zoeken=True gebruikt de AI Google Zoeken. Het antwoord telt alleen als 'live' als er
     echt bronnen bij zitten. Lukt dat niet, dan wordt veilige_prompt (zonder datums) zonder
     zoeken gebruikt, zodat de AI geen datums kan verzinnen."""
     zoekfout = ""
+    if zoeken and not LIVE_ZOEKEN:
+        zoeken = False
     if zoeken:
         try:
             response = _probeer(prompt, True)
@@ -77,8 +89,15 @@ def vraag_gemini(prompt, zoeken=False, veilige_prompt=None):
             zoekfout = "De AI vond geen bronnen via Google Zoeken."
         except Exception as e:
             zoekfout = str(e)
-    response = _probeer(veilige_prompt or prompt, False)
+    response = _probeer(veilige_prompt or prompt, False, seed)
     return response.text, [], False, zoekfout
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def vraag_advies(prompt):
+    """Dezelfde antwoorden geven hetzelfde advies: vaste seed en een cache per opdracht.
+    Mislukte aanroepen (fouten) worden niet in de cache bewaard."""
+    return vraag_gemini(prompt, seed=42)[0]
 
 # "slaat_op" bewaart het antwoord apart, zodat we het in de AI-opdracht kunnen gebruiken.
 # "alleen_bij_diploma" laat een vraag alleen zien bij bepaalde diploma's.
@@ -290,18 +309,18 @@ elif st.session_state.stap < len(actief):
     col_stepper, col_vraag = st.columns([1, 2.6])
 
     with col_stepper:
-        html = ""
+        stepper_html = ""
         for i, v in enumerate(actief):
             status = "done" if i < st.session_state.stap else ("active" if i == st.session_state.stap else "todo")
             teken = "✓" if status == "done" else str(i + 1)
-            html += f"""
+            stepper_html += f"""
             <div class="step-item {status}">
                 <div class="step-dot">{teken}</div>
                 <div class="step-line"></div>
                 <div class="step-label-text">Vraag {i + 1}</div>
             </div>
             """
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(stepper_html, unsafe_allow_html=True)
 
     with col_vraag:
         vraag = actief[st.session_state.stap]
@@ -368,7 +387,7 @@ De score X is een geheel getal van 1 tot 10 en moet eerlijk verschillen tussen d
 geef niet alles een 9. Schrijf voor de eerste koptekst geen inleiding."""
 
         try:
-            st.session_state.advies = vraag_gemini(prompt)[0]
+            st.session_state.advies = vraag_advies(prompt)
         except Exception as e:
             st.session_state.advies = (
                 "Er ging iets mis bij het ophalen van het advies. Dit is vaak tijdelijk "
@@ -442,8 +461,9 @@ Je kunt NIET op internet zoeken; antwoord alleen uit je eigen kennis.
 Sluit af met één korte zin dat exacte toelatingseisen en open-dagdata per instelling en per
 jaar verschillen, en dat de leerling dit altijd moet checken op de officiële website."""
                 try:
-                    tekst, bronnen, live, zoekfout = vraag_gemini(info_prompt, zoeken=True, veilige_prompt=veilige_prompt)
-                    st.session_state.extra_info[studie['naam']] = {"tekst": tekst, "bronnen": bronnen, "live": live, "zoekfout": zoekfout}
+                    tekst, bronnen, live, fout = vraag_gemini(info_prompt, zoeken=True, veilige_prompt=veilige_prompt)
+                    st.session_state.extra_info[studie['naam']] = {
+                        "tekst": tekst, "bronnen": bronnen, "live": live, "zoekfout": fout}
                 except Exception as e:
                     st.session_state.extra_info[studie['naam']] = {
                         "tekst": ("Kon deze info nu niet ophalen (server overbelast). Probeer het zo nog eens.\n\n"
@@ -453,18 +473,26 @@ jaar verschillen, en dat de leerling dit altijd moet checken op de officiële we
         if studie['naam'] in st.session_state.extra_info:
             info = st.session_state.extra_info[studie['naam']]
             if info["live"]:
-                label = "🔎 Live opgezocht via Google"
+                label = "🔎 Live opgezocht op het web. Check altijd even de officiële website."
             else:
                 label = ("⚠️ Niet live gecontroleerd: dit komt uit de kennis van de AI en kan verouderd zijn. "
                          "Open dagen zijn daarom niet getoond; check de website van de instelling.")
-                if info.get("zoekfout"):
+                if info.get("zoekfout") and LIVE_ZOEKEN:
                     label += f" (Zoeken mislukte: {html.escape(info['zoekfout'][:160])})"
             bron_html = ""
             if info["bronnen"]:
-                links = " · ".join(f'<a href="{html.escape(b["url"])}" target="_blank">{html.escape(b["titel"])}</a>'
-                                   for b in info["bronnen"])
+                links = " · ".join(
+                    f'<a href="{html.escape(b["url"])}" target="_blank">'
+                    f'{html.escape(b["titel"])}</a>'
+                    for b in info["bronnen"])
                 bron_html = f'<p class="bronnen">Bronnen: {links}</p>'
-            st.markdown(f'<div class="info-box"><p class="live-label">{label}</p>'
+            if not info["live"]:
+                zoek_url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(f"open dag {studie['naam']}")
+                bron_html = ('<p class="bronnen">Actuele open dagen en toelatingseisen: '
+                             '<a href="https://www.studiekeuze123.nl/open-dagen" target="_blank">Open dagenkalender Studiekeuze123</a>'
+                             f' · <a href="{zoek_url}" target="_blank">Zoek open dagen van deze opleiding</a></p>')
+            label_html = f'<p class="live-label">{label}</p>' if (info["live"] or LIVE_ZOEKEN) else ""
+            st.markdown(f'<div class="info-box">{label_html}'
                         f'{markdown_naar_html(info["tekst"])}{bron_html}</div>', unsafe_allow_html=True)
 
     formulier_url = geheim("FORMULIER_URL")
