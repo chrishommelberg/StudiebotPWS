@@ -1,7 +1,10 @@
 import re
 import time
+import html
+import datetime
 import streamlit as st
 from google import genai
+from google.genai import types
 
 st.set_page_config(page_title="Studiebot", page_icon="🧭", layout="centered")
 
@@ -23,14 +26,33 @@ if not API_KEY:
 client = genai.Client(api_key=API_KEY)
 
 MODELLEN = ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
+ZOEK_TOOL = types.Tool(google_search=types.GoogleSearch())
 
-def vraag_gemini(prompt):
-    """Probeert het hoofdmodel een paar keer (bij overbelasting), daarna een tweede model."""
+def _bronnen_uit(response):
+    """Haalt de websites op die Gemini bij het zoeken heeft gebruikt."""
+    bronnen, gezien = [], set()
+    try:
+        chunks = response.candidates[0].grounding_metadata.grounding_chunks or []
+        for c in chunks:
+            if c.web and c.web.uri and c.web.uri not in gezien:
+                gezien.add(c.web.uri)
+                bronnen.append({"titel": c.web.title or c.web.domain or "bron", "url": c.web.uri})
+    except Exception:
+        pass
+    return bronnen[:5]
+
+def _probeer(prompt, zoeken):
+    """Probeert de modellen na elkaar, met wachttijd bij overbelasting."""
     laatste_fout = None
+    config = types.GenerateContentConfig(tools=[ZOEK_TOOL]) if zoeken else None
     for model in MODELLEN:
         for poging in range(4):
             try:
-                return client.models.generate_content(model=model, contents=prompt).text
+                response = client.models.generate_content(model=model, contents=prompt, config=config)
+                if response.text:
+                    return response
+                laatste_fout = RuntimeError("Leeg antwoord van de AI")
+                break
             except Exception as e:
                 laatste_fout = e
                 tekst = str(e)
@@ -39,6 +61,18 @@ def vraag_gemini(prompt):
                 else:
                     break
     raise laatste_fout
+
+def vraag_gemini(prompt, zoeken=False):
+    """Geeft (tekst, bronnen, live). Met zoeken=True gebruikt de AI Google Zoeken;
+    lukt dat niet, dan valt hij terug op antwoorden uit zijn eigen kennis (live=False)."""
+    if zoeken:
+        try:
+            response = _probeer(prompt, True)
+            return response.text, _bronnen_uit(response), True
+        except Exception:
+            pass
+    response = _probeer(prompt, False)
+    return response.text, [], False
 
 # "slaat_op" bewaart het antwoord apart, zodat we het in de AI-opdracht kunnen gebruiken.
 # "alleen_bij_diploma" laat een vraag alleen zien bij bepaalde diploma's.
@@ -109,6 +143,13 @@ html, body, [class*="css"]  { font-family: 'Work Sans', sans-serif; }
 .info-box { background: #F3F7F5; border-left: 4px solid #3D7A72; border-radius: 6px; padding: 1.1rem 1.4rem; margin-top: 0.8rem; }
 .info-box p { color:#28362F; margin: 0.35rem 0; }
 .subkop { margin-top: 0.9rem !important; color:#16324F !important; }
+.match-rij { display:flex; align-items:center; gap:0.8rem; margin: 0.2rem 0 0.8rem 0; }
+.match-score { font-family: 'Fraunces', serif; font-weight:700; color:#16324F; font-size:1.05rem; white-space:nowrap; }
+.match-balk { flex:1; height:9px; background:#E4E9E2; border-radius:6px; overflow:hidden; }
+.match-vulling { height:100%; background: linear-gradient(90deg, #D9A441, #E8BC63); border-radius:6px; }
+.bronnen { font-size:0.82rem; margin-top:0.6rem; color:#55645B; }
+.bronnen a { color:#16324F; }
+.live-label { font-size:0.8rem; color:#55645B; margin-bottom:0.4rem; }
 .feedback-card { background: #FFF8E8; border-left: 4px solid #D9A441; border-radius: 8px; padding: 1.3rem 1.6rem; margin: 1.6rem 0 0.8rem 0; }
 .feedback-card h4 { font-family: 'Fraunces', serif; color: #16324F; margin: 0 0 0.4rem 0; font-size: 1.15rem; }
 .feedback-card p { color:#3A473F; margin: 0.2rem 0; font-size: 0.93rem; }
@@ -307,12 +348,21 @@ Als een gekozen niveau niet rechtstreeks bereikbaar is vanuit dit diploma (bijvo
 vanaf mavo), beveel dan toch opleidingen op het gekozen niveau aan, maar benoem kort welke
 route daarvoor nodig is (zoals eerst MBO-4 of havo).
 
-Geef een top 3. Onderbouw elke keuze in 2-3 zinnen met concrete verwijzingen naar
-specifieke antwoorden van de leerling hierboven. Gebruik voor elke opleiding een kop
-met "### Naam van de opleiding"."""
+Geef een top 3, gesorteerd van beste naar minste match. Houd je EXACT aan dit formaat per opleiding:
+
+### Naam van de opleiding
+Match: X/10
+- eerste reden, met een concrete verwijzing naar een specifiek antwoord van de leerling
+- tweede reden, idem
+- derde reden, idem
+Let op: (alleen invullen als er een belangrijk aandachtspunt is, zoals een tussenstap of een
+mogelijk nadeel; laat deze regel anders weg)
+
+De score X is een geheel getal van 1 tot 10 en moet eerlijk verschillen tussen de opleidingen:
+geef niet alles een 9. Schrijf voor de eerste koptekst geen inleiding."""
 
         try:
-            st.session_state.advies = vraag_gemini(prompt)
+            st.session_state.advies = vraag_gemini(prompt)[0]
         except Exception as e:
             st.session_state.advies = (
                 "Er ging iets mis bij het ophalen van het advies. Dit is vaak tijdelijk "
@@ -332,41 +382,66 @@ else:
                 unsafe_allow_html=True)
 
     for i, studie in enumerate(studies):
+        inhoud = studie['inhoud']
+        score = None
+        m = re.search(r'^\s*\**\s*Match:?\s*\**\s*(\d{1,2})\s*(?:/\s*10)?\s*\**\s*$', inhoud, flags=re.MULTILINE | re.IGNORECASE)
+        if m:
+            score = max(1, min(10, int(m.group(1))))
+            inhoud = (inhoud[:m.start()] + inhoud[m.end():]).strip()
+        match_html = ""
+        if score:
+            match_html = (f'<div class="match-rij"><span class="match-score">Match {score}/10</span>'
+                          f'<div class="match-balk"><div class="match-vulling" style="width:{score*10}%"></div></div></div>')
         st.markdown(f"""
         <div class="studie-card">
-            <h4>{studie['naam']}</h4>
-            {markdown_naar_html(studie['inhoud'])}
+            <h4>{html.escape(studie['naam'])}</h4>
+            {match_html}
+            {markdown_naar_html(inhoud)}
         </div>
         """, unsafe_allow_html=True)
 
         if st.button(f"Meer info over {studie['naam']}", key=f"info_btn_{i}"):
             with st.spinner("Praktische info opzoeken..."):
-                info_prompt = f"""Geef beknopte, praktische informatie over de opleiding "{studie['naam']}"
-in Nederland, voor een scholier die uitsluitend opleidingen op niveau {niveau_tekst()} overweegt
-(ga dus alleen in op dit niveau). De leerling zit nu op: {achtergrond_tekst()}.
+                vandaag = datetime.date.today().strftime("%d-%m-%Y")
+                info_prompt = f"""Vandaag is het {vandaag}. Zoek actuele, betrouwbare informatie op over de opleiding
+"{studie['naam']}" in Nederland, voor een scholier die uitsluitend opleidingen op niveau
+{niveau_tekst()} overweegt (ga dus alleen in op dit niveau). De leerling zit nu op: {achtergrond_tekst()}.
+Gebruik bij voorkeur officiële bronnen (websites van hogescholen, universiteiten, ROC's,
+Studiekeuze123, DUO).
 
-1. In welke Nederlandse steden deze opleiding op dit niveau doorgaans wordt aangeboden
-   (bij MBO: bij welke regionale opleidingscentra/ROC's).
-2. Hoe toegankelijk de opleiding gemiddeld is (bijvoorbeeld: vrije instroom, decentrale
-   selectie, numerus fixus) en de gebruikelijke toelatingseisen (vooropleiding, vakken).
-   Ga hierbij specifiek in op wat dit betekent voor een leerling met {achtergrond_tekst()}:
-   is directe toelating mogelijk, of is een tussenstap nodig?
-3. In welke periode van het jaar open dagen voor dit soort opleiding doorgaans plaatsvinden
-   (bijvoorbeeld: najaar en voorjaar) — geef GEEN exacte data, alleen de gebruikelijke periode.
+Geef kort en praktisch:
+1. In welke Nederlandse steden deze opleiding op dit niveau wordt aangeboden
+   (bij MBO: bij welke ROC's).
+2. Hoe toegankelijk de opleiding is (bijvoorbeeld vrije instroom, decentrale selectie,
+   numerus fixus) en de toelatingseisen (vooropleiding, vakken). Ga specifiek in op wat dit
+   betekent voor een leerling met {achtergrond_tekst()}: is directe toelating mogelijk, of is
+   een tussenstap nodig?
+3. De eerstvolgende open dagen. Noem een open dag ALLEEN met instelling en datum als je die
+   echt op een officiële site vindt. Verzin of raad nooit een datum. Vind je het niet,
+   zeg dat dan en noem alleen de gebruikelijke periode.
 
-Sluit af met een korte zin dat exacte toelatingseisen en open-dagdata per instelling en
-per jaar verschillen, en dat de leerling dit altijd moet checken op de officiële website."""
+Sluit af met één korte zin dat de leerling toelatingseisen en data altijd moet checken op de
+officiële website van de instelling."""
                 try:
-                    st.session_state.extra_info[studie['naam']] = vraag_gemini(info_prompt)
+                    tekst, bronnen, live = vraag_gemini(info_prompt, zoeken=True)
+                    st.session_state.extra_info[studie['naam']] = {"tekst": tekst, "bronnen": bronnen, "live": live}
                 except Exception as e:
-                    st.session_state.extra_info[studie['naam']] = (
-                        f"Kon deze info nu niet ophalen (server overbelast). Probeer het zo nog eens.\n\n"
-                        f"Technische foutmelding: {e}"
-                    )
+                    st.session_state.extra_info[studie['naam']] = {
+                        "tekst": ("Kon deze info nu niet ophalen (server overbelast). Probeer het zo nog eens.\n\n"
+                                  f"Technische foutmelding: {e}"),
+                        "bronnen": [], "live": False}
 
         if studie['naam'] in st.session_state.extra_info:
-            info_html = markdown_naar_html(st.session_state.extra_info[studie['naam']])
-            st.markdown(f'<div class="info-box">{info_html}</div>', unsafe_allow_html=True)
+            info = st.session_state.extra_info[studie['naam']]
+            label = ("🔎 Live opgezocht via Google" if info["live"]
+                     else "⚠️ Niet live gecontroleerd: dit komt uit de kennis van de AI en kan verouderd zijn.")
+            bron_html = ""
+            if info["bronnen"]:
+                links = " · ".join(f'<a href="{html.escape(b["url"])}" target="_blank">{html.escape(b["titel"])}</a>'
+                                   for b in info["bronnen"])
+                bron_html = f'<p class="bronnen">Bronnen: {links}</p>'
+            st.markdown(f'<div class="info-box"><p class="live-label">{label}</p>'
+                        f'{markdown_naar_html(info["tekst"])}{bron_html}</div>', unsafe_allow_html=True)
 
     formulier_url = geheim("FORMULIER_URL")
     if formulier_url:
