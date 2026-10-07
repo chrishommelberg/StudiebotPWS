@@ -62,17 +62,23 @@ def _probeer(prompt, zoeken):
                     break
     raise laatste_fout
 
-def vraag_gemini(prompt, zoeken=False):
-    """Geeft (tekst, bronnen, live). Met zoeken=True gebruikt de AI Google Zoeken;
-    lukt dat niet, dan valt hij terug op antwoorden uit zijn eigen kennis (live=False)."""
+def vraag_gemini(prompt, zoeken=False, veilige_prompt=None):
+    """Geeft (tekst, bronnen, live, zoekfout).
+    Met zoeken=True gebruikt de AI Google Zoeken. Het antwoord telt alleen als 'live' als er
+    echt bronnen bij zitten. Lukt dat niet, dan wordt veilige_prompt (zonder datums) zonder
+    zoeken gebruikt, zodat de AI geen datums kan verzinnen."""
+    zoekfout = ""
     if zoeken:
         try:
             response = _probeer(prompt, True)
-            return response.text, _bronnen_uit(response), True
-        except Exception:
-            pass
-    response = _probeer(prompt, False)
-    return response.text, [], False
+            bronnen = _bronnen_uit(response)
+            if bronnen:
+                return response.text, bronnen, True, ""
+            zoekfout = "De AI vond geen bronnen via Google Zoeken."
+        except Exception as e:
+            zoekfout = str(e)
+    response = _probeer(veilige_prompt or prompt, False)
+    return response.text, [], False, zoekfout
 
 # "slaat_op" bewaart het antwoord apart, zodat we het in de AI-opdracht kunnen gebruiken.
 # "alleen_bij_diploma" laat een vraag alleen zien bij bepaalde diploma's.
@@ -403,38 +409,56 @@ else:
         if st.button(f"Meer info over {studie['naam']}", key=f"info_btn_{i}"):
             with st.spinner("Praktische info opzoeken..."):
                 vandaag = datetime.date.today().strftime("%d-%m-%Y")
-                info_prompt = f"""Vandaag is het {vandaag}. Zoek actuele, betrouwbare informatie op over de opleiding
-"{studie['naam']}" in Nederland, voor een scholier die uitsluitend opleidingen op niveau
-{niveau_tekst()} overweegt (ga dus alleen in op dit niveau). De leerling zit nu op: {achtergrond_tekst()}.
-Gebruik bij voorkeur officiële bronnen (websites van hogescholen, universiteiten, ROC's,
-Studiekeuze123, DUO).
-
-Geef kort en praktisch:
-1. In welke Nederlandse steden deze opleiding op dit niveau wordt aangeboden
+                basis = f"""voor de opleiding "{studie['naam']}" in Nederland, voor een scholier die uitsluitend
+opleidingen op niveau {niveau_tekst()} overweegt (ga dus alleen in op dit niveau).
+De leerling zit nu op: {achtergrond_tekst()}."""
+                punten_1_2 = f"""1. In welke Nederlandse steden deze opleiding op dit niveau wordt aangeboden
    (bij MBO: bij welke ROC's).
 2. Hoe toegankelijk de opleiding is (bijvoorbeeld vrije instroom, decentrale selectie,
    numerus fixus) en de toelatingseisen (vooropleiding, vakken). Ga specifiek in op wat dit
    betekent voor een leerling met {achtergrond_tekst()}: is directe toelating mogelijk, of is
-   een tussenstap nodig?
+   een tussenstap nodig?"""
+                info_prompt = f"""Vandaag is het {vandaag}. Zoek via Google actuele, betrouwbare informatie op {basis}
+Gebruik bij voorkeur officiële bronnen (websites van hogescholen, universiteiten, ROC's,
+Studiekeuze123, DUO).
+
+Geef kort en praktisch:
+{punten_1_2}
 3. De eerstvolgende open dagen. Noem een open dag ALLEEN met instelling en datum als je die
-   echt op een officiële site vindt. Verzin of raad nooit een datum. Vind je het niet,
-   zeg dat dan en noem alleen de gebruikelijke periode.
+   zelf op een officiële site hebt gevonden. Verzin of raad nooit een datum en schrijf nooit
+   dat je een website hebt geraadpleegd als dat niet zo is. Vind je ze niet, zeg dat dan
+   en noem alleen de gebruikelijke periode.
 
 Sluit af met één korte zin dat de leerling toelatingseisen en data altijd moet checken op de
 officiële website van de instelling."""
+                veilige_prompt = f"""Geef beknopte, praktische informatie {basis}
+Je kunt NIET op internet zoeken; antwoord alleen uit je eigen kennis.
+
+{punten_1_2}
+3. In welke periode van het jaar open dagen voor dit soort opleiding doorgaans plaatsvinden
+   (bijvoorbeeld: najaar en voorjaar). Noem GEEN exacte data, GEEN instellingen met datums,
+   en schrijf nooit dat je een website hebt geraadpleegd of dat gegevens actueel zijn.
+
+Sluit af met één korte zin dat exacte toelatingseisen en open-dagdata per instelling en per
+jaar verschillen, en dat de leerling dit altijd moet checken op de officiële website."""
                 try:
-                    tekst, bronnen, live = vraag_gemini(info_prompt, zoeken=True)
-                    st.session_state.extra_info[studie['naam']] = {"tekst": tekst, "bronnen": bronnen, "live": live}
+                    tekst, bronnen, live, zoekfout = vraag_gemini(info_prompt, zoeken=True, veilige_prompt=veilige_prompt)
+                    st.session_state.extra_info[studie['naam']] = {"tekst": tekst, "bronnen": bronnen, "live": live, "zoekfout": zoekfout}
                 except Exception as e:
                     st.session_state.extra_info[studie['naam']] = {
                         "tekst": ("Kon deze info nu niet ophalen (server overbelast). Probeer het zo nog eens.\n\n"
                                   f"Technische foutmelding: {e}"),
-                        "bronnen": [], "live": False}
+                        "bronnen": [], "live": False, "zoekfout": ""}
 
         if studie['naam'] in st.session_state.extra_info:
             info = st.session_state.extra_info[studie['naam']]
-            label = ("🔎 Live opgezocht via Google" if info["live"]
-                     else "⚠️ Niet live gecontroleerd: dit komt uit de kennis van de AI en kan verouderd zijn.")
+            if info["live"]:
+                label = "🔎 Live opgezocht via Google"
+            else:
+                label = ("⚠️ Niet live gecontroleerd: dit komt uit de kennis van de AI en kan verouderd zijn. "
+                         "Open dagen zijn daarom niet getoond; check de website van de instelling.")
+                if info.get("zoekfout"):
+                    label += f" (Zoeken mislukte: {html.escape(info['zoekfout'][:160])})"
             bron_html = ""
             if info["bronnen"]:
                 links = " · ".join(f'<a href="{html.escape(b["url"])}" target="_blank">{html.escape(b["titel"])}</a>'
