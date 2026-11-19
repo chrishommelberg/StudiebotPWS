@@ -141,3 +141,6 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:8px 28px;justify-content:space-betw
 @media (max-width:960px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:minmax(0,1fr)}.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:760px){.hero-box,.duo{grid-template-columns:minmax(0,1fr)}.row2{grid-template-columns:minmax(0,1fr);gap:8px}.row2 .n{font-size:3rem}}
 @media (max-width:520px){body{font-size:16px}.steps{grid-template-columns:minmax(0,1fr)}.btn{width:100%;font-size:1.2rem}.btn.sm{width:auto}.facts{grid-template-columns:minmax(0,1fr)}}
+.widget{display:grid;justify-items:center;gap:14px}
+.widget iframe{background:#fff;max-width:100%}
+.widget p{color:var(--muted);font-size:.95rem;text-align:center}
