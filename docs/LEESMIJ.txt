@@ -1,0 +1,13 @@
+STUDIEBOT - WEBSITE
+===================
+Open index.html in je browser (dubbelklik). De andere pagina's staan in dezelfde map.
+
+- index.html        homepage
+- hoe-werkt.html    uitleg in vier stappen
+- onderzoek.html    het onderzoek
+- open-dagen.html   open dagen (met link naar de kalender van Studiekeuze123)
+- vragen.html       veelgestelde vragen, goed om te weten en privacy
+- assets/style.css  kleuren, lettertypes en opmaak
+
+Aanpassen: open de bestanden in VS Code, verander de tekst tussen de codes en sla op.
+Link naar de test: zoek in de html-bestanden naar 'streamlit.app'.
