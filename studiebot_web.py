@@ -7,7 +7,7 @@ import streamlit as st
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="Studiebot", page_icon="🧭", layout="centered")
+st.set_page_config(page_title="Studiebot", page_icon="🧭", layout="wide")
 
 def geheim(naam):
     """Leest een geheime instelling (zoals de API-key) uit .streamlit/secrets.toml
@@ -128,62 +128,102 @@ vragen = [
 # ---------- Stijl ----------
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Sans:wght@400;500;600&display=swap');
+:root{--yellow:#FFD43B;--pink:#FF5C8A;--blue:#3B6BFF;--mint:#3DDC97;--orange:#FF8A3D;--ink:#14121F;--cream:#FFF8E7;--muted:#6B6878;}
 
-html, body, [class*="css"]  { font-family: 'Work Sans', sans-serif; }
-.block-container { max-width: 780px; padding-top: 2rem; }
+html, body, [class*="css"], .stApp { font-family: 'DM Sans', sans-serif; color: var(--ink); }
+.stApp { background: var(--cream); }
+header[data-testid="stHeader"] { background: transparent; height: 0; }
+#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none; }
 
-.hero-panel {
-    background: linear-gradient(135deg, #16324F 0%, #1F4463 100%);
-    border-radius: 16px; padding: 2.2rem 2.4rem; margin-bottom: 2.2rem;
-}
-.hero-panel .icon { font-size: 2rem; }
-.hero-panel h1 { font-family: 'Fraunces', serif; font-weight: 700; font-size: 2.1rem; color: #FFFFFF; margin: 0.4rem 0 0.5rem 0; }
-.hero-panel p { color: #C9D6DE; margin: 0; font-size: 0.97rem; }
+/* Schermvullend */
+.block-container { max-width: 100% !important; padding: 1.6rem 4vw 2rem 4vw !important; min-height: 100vh; }
 
-.step-item { display:flex; align-items:flex-start; gap:0.7rem; position:relative; padding-bottom:1.4rem; }
-.step-item:last-child { padding-bottom:0; }
-.step-item:last-child .step-line { display:none; }
-.step-dot { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:600; flex-shrink:0; z-index:1; }
-.step-item.done .step-dot { background:#16324F; color:#fff; }
-.step-item.active .step-dot { background:#D9A441; color:#16324F; box-shadow:0 0 0 4px rgba(217,164,65,0.25); }
-.step-item.todo .step-dot { background:#fff; border:2px solid #C7CFC9; color:#8B968F; }
-.step-line { position:absolute; left:12px; top:26px; bottom:-14px; width:2px; background:#C7CFC9; }
-.step-item.done .step-line, .step-item.active .step-line { background:#16324F; }
-.step-label-text { font-size:0.83rem; padding-top:3px; color:#33403A; }
-.step-item.todo .step-label-text { color:#9AA39D; }
+/* Topbalk */
+.topbar { display:flex; align-items:center; gap:.7rem; margin-bottom:1.8rem; }
+.topbar .dot { width:14px; height:14px; border-radius:50%; background:var(--yellow); box-shadow: 14px 0 0 var(--pink), 28px 0 0 var(--blue); margin-right:28px; }
+.topbar .naam { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:1.35rem; letter-spacing:-.01em; }
+.topbar .sub { color:var(--muted); font-size:.95rem; margin-left:.4rem; }
 
-.question-card { background: #FFFFFF; border-left: 4px solid #D9A441; border-radius: 8px; padding: 1.6rem 1.8rem; margin-bottom: 1.3rem; }
-.question-card h3 { font-family: 'Fraunces', serif; font-weight: 600; color: #16324F; font-size: 1.25rem; margin: 0; }
+.welkom h1 { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:clamp(2.2rem,4.5vw,3.6rem); line-height:1.05; margin:0 0 1rem 0; letter-spacing:-.02em; }
+.welkom h1 .hl { background: linear-gradient(transparent 62%, var(--yellow) 62%); }
+.welkom p { font-size:1.2rem; max-width:46rem; line-height:1.55; color:#2B2838; margin:.4rem 0; }
+.welkom .klein { font-size:.95rem; color:var(--muted); margin-top:1.2rem; }
 
-.advies-intro { background: #FFFFFF; border-radius: 10px; padding: 1.6rem 2rem; margin-bottom: 1.4rem; box-shadow: 0 1px 3px rgba(22,50,79,0.08); }
-.advies-intro h3 { font-family: 'Fraunces', serif; color: #16324F; margin-top: 0; font-size: 1.5rem; }
-.advies-intro p { color:#2E3A34; margin: 0.4rem 0; }
+/* Voortgang */
+.voortgang { height:8px; background:#EFE5C8; border-radius:99px; overflow:hidden; margin-bottom:1.6rem; }
+.voortgang > div { height:100%; background:linear-gradient(90deg,var(--yellow),var(--orange),var(--pink)); border-radius:99px; transition:width .3s; }
 
-.studie-card { background: #FFFFFF; border-radius: 10px; padding: 1.5rem 1.8rem; margin-bottom: 1.1rem; box-shadow: 0 1px 3px rgba(22,50,79,0.08); }
-.studie-card h4 { font-family: 'Fraunces', serif; color: #16324F; margin: 0 0 0.5rem 0; font-size: 1.25rem; }
-.studie-card p { color:#2E3A34; margin: 0.3rem 0; }
-.studie-card ul { margin: 0.3rem 0 0.6rem 0; padding-left: 1.2rem; }
+.step-item { display:flex; align-items:center; gap:.7rem; padding:.28rem 0; }
+.step-dot { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:600; flex-shrink:0; }
+.step-item.done .step-dot { background:var(--mint); color:var(--ink); }
+.step-item.active .step-dot { background:var(--ink); color:#fff; }
+.step-item.todo .step-dot { background:#EFE5C8; color:#8E8670; }
+.step-line { display:none; }
+.step-label-text { font-size:.92rem; color:var(--ink); }
+.step-item.todo .step-label-text { color:#A59E88; }
+.step-item.active .step-label-text { font-weight:600; }
 
-.info-box { background: #F3F7F5; border-left: 4px solid #3D7A72; border-radius: 6px; padding: 1.1rem 1.4rem; margin-top: 0.8rem; }
-.info-box p { color:#28362F; margin: 0.35rem 0; }
-.subkop { margin-top: 0.9rem !important; color:#16324F !important; }
-.match-rij { display:flex; align-items:center; gap:0.8rem; margin: 0.2rem 0 0.8rem 0; }
-.match-score { font-family: 'Fraunces', serif; font-weight:700; color:#16324F; font-size:1.05rem; white-space:nowrap; }
-.match-balk { flex:1; height:9px; background:#E4E9E2; border-radius:6px; overflow:hidden; }
-.match-vulling { height:100%; background: linear-gradient(90deg, #D9A441, #E8BC63); border-radius:6px; }
-.bronnen { font-size:0.82rem; margin-top:0.6rem; color:#55645B; }
-.bronnen a { color:#16324F; }
-.live-label { font-size:0.8rem; color:#55645B; margin-bottom:0.4rem; }
-.chat-kop { margin: 1.8rem 0 0.6rem 0; }
-.chat-kop h4 { font-family: 'Fraunces', serif; color: #16324F; margin: 0 0 0.3rem 0; font-size: 1.15rem; }
-.chat-kop p { color:#55645B; margin: 0.1rem 0; font-size: 0.9rem; }
-.feedback-card { background: #FFF8E8; border-left: 4px solid #D9A441; border-radius: 8px; padding: 1.3rem 1.6rem; margin: 1.6rem 0 0.8rem 0; }
-.feedback-card h4 { font-family: 'Fraunces', serif; color: #16324F; margin: 0 0 0.4rem 0; font-size: 1.15rem; }
-.feedback-card p { color:#3A473F; margin: 0.2rem 0; font-size: 0.93rem; }
+.vraag-label { display:inline-block; background:var(--yellow); color:var(--ink); font-weight:600; font-size:.85rem; padding:.25rem .8rem; border-radius:99px; margin-bottom:.9rem; }
+.question-card { background:transparent; padding:0; margin-bottom:1.2rem; }
+.question-card h3 { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:clamp(1.7rem,3vw,2.5rem); line-height:1.15; letter-spacing:-.015em; margin:0; color:var(--ink); }
+.question-card p { font-size:1.1rem; color:#2B2838; }
 
-div.stButton > button { background-color: #16324F; color: #FFFFFF; border: none; border-radius: 6px; padding: 0.5rem 1.5rem; font-weight: 500; }
-div.stButton > button:hover { background-color: #0F233A; color: #FFFFFF; }
+/* Antwoordopties als grote kaarten */
+.stElementContainer:has(> div[data-testid="stRadio"]) { width:100% !important; }
+div[data-testid="stRadio"], div[data-testid="stRadio"] > div[role="radiogroup"] { width:100%; }
+div[data-testid="stRadioGroup"] { gap:.8rem; align-items:stretch !important; width:100%; }
+div[data-testid="stRadioGroup"] > label { width:100% !important; }
+div[data-testid="stRadio"] label:not([data-testid="stWidgetLabel"]) { background:#fff; border:2px solid transparent; border-radius:18px; padding:1.15rem 1.4rem; box-shadow:0 2px 10px rgba(20,18,31,.06); transition:all .15s; width:100% !important; box-sizing:border-box; cursor:pointer; }
+div[data-testid="stRadio"] label:not([data-testid="stWidgetLabel"]):hover { border-color:var(--yellow); transform:translateY(-1px); }
+div[data-testid="stRadio"] label:has(input:checked) { border-color:var(--blue); background:#F1F5FF; }
+div[data-testid="stRadio"] label p { font-size:1.25rem !important; font-weight:500; }
+div[data-testid="stRadio"] label > div:first-child { transform:scale(1.25); margin-right:.4rem; }
+
+/* Pills (meerkeuze) */
+button[data-testid="stBaseButton-pills"], button[data-testid="stBaseButton-pillsActive"] { font-size:1.25rem !important; padding:1rem 2rem !important; border-radius:18px !important; background:#fff; border:2px solid transparent !important; box-shadow:0 2px 10px rgba(20,18,31,.06); }
+button[data-testid="stBaseButton-pills"] p, button[data-testid="stBaseButton-pillsActive"] p { font-size:1.25rem !important; font-weight:500; }
+button[data-testid="stBaseButton-pillsActive"] { border-color:var(--blue) !important; background:#F1F5FF !important; }
+button[data-testid="stBaseButton-pills"]:hover { border-color:var(--yellow) !important; }
+
+/* Tekstvelden */
+div[data-testid="stTextArea"] textarea { font-size:1.25rem; line-height:1.5; min-height:220px; border-radius:18px; border:2px solid transparent; background:#fff; padding:1.2rem 1.4rem; box-shadow:0 2px 10px rgba(20,18,31,.06); }
+div[data-testid="stTextArea"] textarea:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(59,107,255,.15); }
+div[data-testid="stTextInput"] input { font-size:1.1rem; border-radius:14px; padding:.8rem 1rem; background:#fff; }
+.stCaption, [data-testid="stCaptionContainer"] { font-size:1rem; }
+
+/* Knoppen */
+div.stButton > button, div.stFormSubmitButton > button { background:var(--blue); color:#fff; border:none; border-radius:14px; padding:.8rem 2rem; font-size:1.1rem; font-weight:600; box-shadow:0 4px 14px rgba(59,107,255,.28); transition:all .15s; }
+div.stButton > button:hover, div.stFormSubmitButton > button:hover { background:#2B57E0; color:#fff; transform:translateY(-1px); }
+div.stButton > button p, div.stFormSubmitButton > button p { font-size:1.1rem; font-weight:600; }
+a[data-testid="stBaseLinkButton-primary"] { background:var(--pink); border:none; border-radius:14px; padding:.8rem 2rem; font-weight:600; }
+
+/* Advies */
+.advies-intro { background:var(--ink); color:#fff; border-radius:24px; padding:1.8rem 2.2rem; margin-bottom:1.4rem; }
+.advies-intro h3 { font-family:'Bricolage Grotesque',sans-serif; font-size:2rem; margin:0 0 .5rem 0; color:#fff; }
+.advies-intro p { color:#E6E3F0; margin:.3rem 0; font-size:1.05rem; }
+.studie-card { background:#fff; border-radius:24px; padding:1.7rem 2rem; margin-top:1.1rem; margin-bottom:.4rem; box-shadow:0 4px 20px rgba(20,18,31,.07); border-top:6px solid var(--yellow); }
+.studie-card.c1 { border-top-color:var(--pink); }
+.studie-card.c2 { border-top-color:var(--blue); }
+.studie-card h4 { font-family:'Bricolage Grotesque',sans-serif; color:var(--ink); margin:0 0 .5rem 0; font-size:1.6rem; }
+.studie-card p, .studie-card li { color:#2B2838; font-size:1.05rem; line-height:1.55; }
+.studie-card ul { margin:.3rem 0 .6rem 0; padding-left:1.2rem; }
+.info-box { background:#fff; border-left:5px solid var(--mint); border-radius:14px; padding:1.1rem 1.5rem; margin:.6rem 0 1rem 0; box-shadow:0 2px 10px rgba(20,18,31,.05); }
+.info-box p, .info-box li { color:#2B2838; margin:.35rem 0; font-size:1rem; }
+.subkop { margin-top:.9rem !important; }
+.match-rij { display:flex; align-items:center; gap:.9rem; margin:.2rem 0 1rem 0; }
+.match-score { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:1.15rem; white-space:nowrap; }
+.match-balk { flex:1; height:12px; background:#F1EAD5; border-radius:99px; overflow:hidden; }
+.match-vulling { height:100%; background:linear-gradient(90deg,var(--yellow),var(--orange),var(--pink)); border-radius:99px; }
+.bronnen { font-size:.88rem; margin-top:.6rem; color:var(--muted); }
+.bronnen a { color:var(--blue); }
+.live-label { font-size:.88rem; color:var(--muted); margin-bottom:.4rem; }
+.chat-kop { margin:2rem 0 .6rem 0; }
+.chat-kop h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .3rem 0; font-size:1.5rem; }
+.chat-kop p { color:var(--muted); margin:.1rem 0; font-size:.95rem; }
+.feedback-card { background:#FFF0B8; border-radius:20px; padding:1.3rem 1.7rem; margin:1.6rem 0 .8rem 0; }
+.feedback-card h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .4rem 0; font-size:1.3rem; }
+.feedback-card p { color:#2B2838; margin:.2rem 0; font-size:1rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -320,29 +360,20 @@ def stel_vraag(vraag):
 
 actief = actieve_vragen()
 
-# ---------- Hero ----------
+# ---------- Topbalk ----------
 st.markdown("""
-<div class="hero-panel">
-    <span class="icon">🧭</span>
-    <h1>Studiebot</h1>
-    <p>Beantwoord een aantal vragen en krijg een persoonlijk, zelfstandig opgesteld studieadvies.</p>
-</div>
+<div class="topbar"><span class="dot"></span><span class="naam">Studiebot</span><span class="sub">jouw studiekeuzetest</span></div>
 """, unsafe_allow_html=True)
 
 # ---------- Welkomstscherm ----------
 if st.session_state.stap == -1:
     st.markdown("""
-    <div class="question-card">
-        <h3>Welkom!</h3>
-        <p style="margin-top:0.6rem; color:#3A473F;">
-            Je krijgt zo ongeveer 10 vragen: eerst over je huidige opleiding en wat je wilt gaan doen,
-            daarna over hoe je denkt, werkt en wat je drijft.
-            Aan het eind denkt de AI vrij na over welke opleidingen het beste passen.
-        </p>
-        <p style="margin-top:0.6rem; color:#6B7B74; font-size:0.85rem;">
-            Je antwoorden worden alleen gebruikt om je advies te maken en worden niet door Studiebot
-            opgeslagen. Voor het advies worden ze wel naar Google (Gemini) gestuurd.
-        </p>
+    <div class="welkom">
+        <h1>Ontdek welke studie <span class="hl">echt</span> bij je past.</h1>
+        <p>Je krijgt ongeveer 10 vragen: eerst over je huidige opleiding en wat je wilt gaan doen,
+        daarna over hoe je denkt, werkt en wat je drijft. Aan het eind denkt de AI vrij na over welke opleidingen het beste passen.</p>
+        <p class="klein">Je antwoorden worden alleen gebruikt om je advies te maken en worden niet door Studiebot
+        opgeslagen. Voor het advies worden ze wel naar Google (Gemini) gestuurd.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -359,7 +390,7 @@ if st.session_state.stap == -1:
 
 # ---------- Vragen ----------
 elif st.session_state.stap < len(actief):
-    col_stepper, col_vraag = st.columns([1, 2.6])
+    col_stepper, col_vraag = st.columns([1, 4])
 
     with col_stepper:
         stepper_html = ""
@@ -378,7 +409,10 @@ elif st.session_state.stap < len(actief):
     with col_vraag:
         vraag = actief[st.session_state.stap]
         widget_key = f"vraag_{vraag['tekst']}"
-        st.markdown(f'<div class="question-card"><h3>{vraag["tekst"]}</h3></div>', unsafe_allow_html=True)
+        pct = int(100 * st.session_state.stap / len(actief))
+        st.markdown(f'<div class="voortgang"><div style="width:{pct}%"></div></div>'
+                    f'<span class="vraag-label">Vraag {st.session_state.stap + 1} van {len(actief)}</span>'
+                    f'<div class="question-card"><h3>{html.escape(vraag["tekst"])}</h3></div>', unsafe_allow_html=True)
 
         if vraag["type"] == "multi":
             keuze = st.pills("Kies één of meer opties:", vraag["opties"], selection_mode="multi",
@@ -471,7 +505,7 @@ else:
             match_html = (f'<div class="match-rij"><span class="match-score">Match {score}/10</span>'
                           f'<div class="match-balk"><div class="match-vulling" style="width:{score*10}%"></div></div></div>')
         st.markdown(f"""
-        <div class="studie-card">
+        <div class="studie-card c{i % 3}">
             <h4>{html.escape(studie['naam'])}</h4>
             {match_html}
             {markdown_naar_html(inhoud)}
@@ -595,4 +629,3 @@ jaar verschillen, en dat de leerling dit altijd moet checken op de officiële we
         st.session_state.niveaus = []
         st.session_state.chat = []
         st.rerun()
-
