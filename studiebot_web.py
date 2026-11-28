@@ -29,6 +29,8 @@ client = genai.Client(api_key=API_KEY)
 MODELLEN = ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
 ZOEK_TOOL = types.Tool(google_search=types.GoogleSearch())
 LIVE_ZOEKEN = str(geheim("LIVE_ZOEKEN") or "").lower() == "ja"  # alleen aan met een betaald Gemini-account
+TOP_N = 3     # aantal opleidingen met uitleg
+EXTRA_N = 20  # aantal extra opleidingen (alleen naam en score)
 
 
 def _bronnen_uit(response):
@@ -218,9 +220,24 @@ a[data-testid="stBaseLinkButton-primary"] { background:var(--pink); border:none;
 .bronnen { font-size:.88rem; margin-top:.6rem; color:var(--muted); }
 .bronnen a { color:var(--blue); }
 .live-label { font-size:.88rem; color:var(--muted); margin-bottom:.4rem; }
-.chat-kop { margin:2rem 0 .6rem 0; }
-.chat-kop h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .3rem 0; font-size:1.5rem; }
-.chat-kop p { color:var(--muted); margin:.1rem 0; font-size:.95rem; }
+.overig-kop { margin:1.8rem 0 .6rem 0; }
+.overig-kop h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .2rem 0; font-size:1.4rem; }
+.overig-kop p { color:var(--muted); margin:.1rem 0; font-size:.95rem; }
+.overig-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:.5rem .9rem; margin-bottom:.5rem; }
+.overig-item { display:flex; justify-content:space-between; gap:1rem; background:#fff; border-radius:12px; padding:.7rem 1rem; font-size:1rem; box-shadow:0 1px 6px rgba(20,18,31,.05); }
+.overig-score { font-weight:700; color:var(--blue); font-variant-numeric:tabular-nums; }
+.chat-kop { margin:2.4rem 0 1rem 0; background:var(--ink); color:#fff; border-radius:24px; padding:1.5rem 2rem; }
+.bubbel-rij { display:flex; margin:.8rem 0; }
+.bubbel-rij.user { justify-content:flex-end; }
+.bubbel { max-width:min(48rem,88%); padding:1rem 1.35rem; border-radius:22px; font-size:1.15rem; line-height:1.55; overflow-wrap:anywhere; }
+.bubbel-rij.user .bubbel { background:var(--blue); color:#fff; border-bottom-right-radius:6px; }
+.bubbel-rij.bot .bubbel { background:#fff; color:var(--ink); border-bottom-left-radius:6px; box-shadow:0 2px 10px rgba(20,18,31,.07); }
+.bubbel ul { margin:.3rem 0; padding-left:1.4rem; }
+.bubbel p, .bubbel li { color:inherit; margin:.3rem 0; font-size:inherit; }
+div[data-testid="stForm"] { border:none; padding:0; }
+div[data-testid="stForm"] input { font-size:1.2rem; padding:1rem 1.3rem; border-radius:16px; }
+.chat-kop h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .3rem 0; font-size:1.8rem; color:#fff; }
+.chat-kop p { color:#E6E3F0; margin:.1rem 0; font-size:1rem; }
 .feedback-card { background:#FFF0B8; border-radius:20px; padding:1.3rem 1.7rem; margin:1.6rem 0 .8rem 0; }
 .feedback-card h4 { font-family:'Bricolage Grotesque',sans-serif; margin:0 0 .4rem 0; font-size:1.3rem; }
 .feedback-card p { color:#2B2838; margin:.2rem 0; font-size:1rem; }
@@ -317,7 +334,7 @@ def beantwoord_vervolgvraag(vraag):
     geschiedenis = "\n".join(
         f"{'Leerling' if b['rol'] == 'user' else 'Studiebot'}: {b['tekst']}"
         for b in st.session_state.chat[-8:]) or "(nog geen eerder gesprek)"
-    prompt = f"""Je bent Studiebot, een vriendelijke studiekeuzehulp voor een scholier in Nederland.
+    prompt = f"""Je bent Studiebot, een zakelijke studiekeuzehulp voor een scholier in Nederland.
 Beantwoord de vervolgvraag van de leerling.
 
 Antwoorden van de leerling op de vragenlijst:
@@ -335,6 +352,8 @@ Vraag van de leerling: {vraag}
 
 REGELS:
 - Antwoord in het Nederlands, in maximaal ongeveer 120 woorden. Gebruik gewone tekst, eventueel met korte opsommingen.
+- Schrijf zakelijk en direct. Begin meteen met het antwoord. Geef geen complimenten of beoordelingen van de vraag (zoals 'goede vraag'), gebruik geen uitroeptekens en geen emoji's en sluit niet af met een aanbod of een wedervraag.
+- Het advies bevat een top met uitleg en een lijst met overige opleidingen met een match-score; je mag naar beide verwijzen.
 - Verwijs waar relevant naar wat de leerling zelf heeft geantwoord.
 - Je kunt niet op internet zoeken. Noem geen exacte open-dagdata, collegegelden of toelatingscijfers en verzin geen feiten. Weet je iets niet zeker, zeg dat en verwijs naar de officiële website van de instelling of naar Studiekeuze123.
 - Blijf bij studie- en beroepskeuze. Gaat de vraag daar niet over, zeg dan vriendelijk dat je alleen met studiekeuze kunt helpen.
@@ -460,18 +479,30 @@ Als een gekozen niveau niet rechtstreeks bereikbaar is vanuit dit diploma (bijvo
 vanaf mavo), beveel dan toch opleidingen op het gekozen niveau aan, maar benoem kort welke
 route daarvoor nodig is (zoals eerst MBO-4 of havo).
 
-Geef een top 3, gesorteerd van beste naar minste match. Houd je EXACT aan dit formaat per opleiding:
+Geef een top {TOP_N}, gesorteerd van beste naar minste match. Houd je EXACT aan dit formaat per opleiding:
 
 ### Naam van de opleiding
-Match: X/10
+Match: X/100
 - eerste reden, met een concrete verwijzing naar een specifiek antwoord van de leerling
 - tweede reden, idem
 - derde reden, idem
 Let op: (alleen invullen als er een belangrijk aandachtspunt is, zoals een tussenstap of een
 mogelijk nadeel; laat deze regel anders weg)
 
-De score X is een geheel getal van 1 tot 10 en moet eerlijk verschillen tussen de opleidingen:
-geef niet alles een 9. Schrijf voor de eerste koptekst geen inleiding."""
+De score X is een geheel getal van 0 tot 100 en moet eerlijk verschillen tussen de opleidingen:
+gebruik de hele schaal, geef geen gelijke scores en geef niet alles een score boven de 90.
+Schrijf voor de eerste koptekst geen inleiding.
+
+Zet na de laatste opleiding op een nieuwe regel precies deze regel: ---OVERIG---
+Geef daarna nog {EXTRA_N} andere bestaande Nederlandse opleidingen op het gekozen niveau
+(het niveau-eis uit BELANGRIJK 1 geldt ook hier), van hoge naar lage score. Alleen naam en score,
+één per regel, in dit formaat:
+Naam van de opleiding | score
+Elke score is een geheel getal van 0 tot 100 en ligt niet hoger dan de laagste score uit de top {TOP_N}.
+Geen uitleg, geen opsommingstekens en geen extra tekst in deze lijst.
+
+Schrijfstijl: zakelijk en direct. Geen complimenten, geen uitroeptekens, geen emoji's en geen
+inleidende of afsluitende zinnen."""
 
         try:
             st.session_state.advies = vraag_advies(prompt)
@@ -485,7 +516,9 @@ geef niet alles een 9. Schrijf voor de eerste koptekst geen inleiding."""
 
 # ---------- Advies + extra info per studie ----------
 else:
-    intro, studies = split_advies_in_studies(st.session_state.advies)
+    delen = re.split(r'^\W*OVERIG\W*$', st.session_state.advies, maxsplit=1, flags=re.MULTILINE | re.IGNORECASE)
+    intro, studies = split_advies_in_studies(delen[0])
+    overig_tekst = delen[1] if len(delen) > 1 else ""
 
     st.markdown(f'<div class="advies-intro"><h3>Jouw studieadvies</h3>'
                 f'<p>Huidig niveau: <strong>{achtergrond_tekst()}</strong><br>'
@@ -496,14 +529,14 @@ else:
     for i, studie in enumerate(studies):
         inhoud = studie['inhoud']
         score = None
-        m = re.search(r'^\s*\**\s*Match:?\s*\**\s*(\d{1,2})\s*(?:/\s*10)?\s*\**\s*$', inhoud, flags=re.MULTILINE | re.IGNORECASE)
+        m = re.search(r'^\s*\**\s*Match:?\s*\**\s*(\d{1,3})\s*(?:/\s*100|%)?\s*\**\s*$', inhoud, flags=re.MULTILINE | re.IGNORECASE)
         if m:
-            score = max(1, min(10, int(m.group(1))))
+            score = max(0, min(100, int(m.group(1))))
             inhoud = (inhoud[:m.start()] + inhoud[m.end():]).strip()
         match_html = ""
-        if score:
-            match_html = (f'<div class="match-rij"><span class="match-score">Match {score}/10</span>'
-                          f'<div class="match-balk"><div class="match-vulling" style="width:{score*10}%"></div></div></div>')
+        if score is not None:
+            match_html = (f'<div class="match-rij"><span class="match-score">Match {score}/100</span>'
+                          f'<div class="match-balk"><div class="match-vulling" style="width:{score}%"></div></div></div>')
         st.markdown(f"""
         <div class="studie-card c{i % 3}">
             <h4>{html.escape(studie['naam'])}</h4>
@@ -528,7 +561,7 @@ De leerling zit nu op: {achtergrond_tekst()}."""
 Gebruik bij voorkeur officiële bronnen (websites van hogescholen, universiteiten, ROC's,
 Studiekeuze123, DUO).
 
-Geef kort en praktisch:
+Geef kort en praktisch, zakelijk en zonder inleiding:
 {punten_1_2}
 3. De eerstvolgende open dagen. Noem een open dag ALLEEN met instelling en datum als je die
    zelf op een officiële site hebt gevonden. Verzin of raad nooit een datum en schrijf nooit
@@ -538,6 +571,7 @@ Geef kort en praktisch:
 Sluit af met één korte zin dat de leerling toelatingseisen en data altijd moet checken op de
 officiële website van de instelling."""
                 veilige_prompt = f"""Geef beknopte, praktische informatie {basis}
+Schrijf zakelijk en direct, zonder inleiding, complimenten of uitroeptekens.
 Je kunt NIET op internet zoeken; antwoord alleen uit je eigen kennis.
 
 {punten_1_2}
@@ -582,6 +616,20 @@ jaar verschillen, en dat de leerling dit altijd moet checken op de officiële we
             st.markdown(f'<div class="info-box">{label_html}'
                         f'{markdown_naar_html(info["tekst"])}{bron_html}</div>', unsafe_allow_html=True)
 
+    # ---------- Overige opties (alleen naam en score) ----------
+    overig = []
+    for regel in overig_tekst.split("\n"):
+        m2 = re.match(r'^\s*[-*]?\s*(.+?)\s*\|\s*(\d{1,3})\s*%?\s*$', regel)
+        if m2:
+            overig.append((m2.group(1).strip("* "), max(0, min(100, int(m2.group(2))))))
+    if overig:
+        items = "".join(f'<div class="overig-item"><span>{html.escape(n)}</span><span class="overig-score">{sc}</span></div>'
+                        for n, sc in overig[:EXTRA_N + 5])
+        st.markdown('<div class="overig-kop"><h4>Ook interessant</h4>'
+                    '<p>Alleen naam en indicatieve match (0 tot 100), zonder uitleg. '
+                    'Je kunt hieronder in de chat een vraag over deze opleidingen stellen.</p></div>'
+                    f'<div class="overig-grid">{items}</div>', unsafe_allow_html=True)
+
     # ---------- Vervolgvragen ----------
     st.session_state.setdefault("chat", [])
     st.markdown('<div class="chat-kop"><h4>Heb je een vraag over je advies?</h4>'
@@ -589,8 +637,12 @@ jaar verschillen, en dat de leerling dit altijd moet checken op de officiële we
                 'Je vragen gaan, net als je antwoorden, naar Google (Gemini). Vul dus geen persoonlijke gegevens in.</p></div>',
                 unsafe_allow_html=True)
     for bericht in st.session_state.chat:
-        with st.chat_message(bericht["rol"]):
-            st.write(bericht["tekst"])
+        if bericht["rol"] == "user":
+            inhoud = html.escape(bericht["tekst"]).replace("\n", "<br>")
+            st.markdown(f'<div class="bubbel-rij user"><div class="bubbel">{inhoud}</div></div>', unsafe_allow_html=True)
+        else:
+            inhoud = markdown_naar_html(html.escape(bericht["tekst"]))
+            st.markdown(f'<div class="bubbel-rij bot"><div class="bubbel">{inhoud}</div></div>', unsafe_allow_html=True)
 
     aantal_vragen = sum(1 for b in st.session_state.chat if b["rol"] == "user")
     if aantal_vragen >= MAX_VERVOLGVRAGEN:
