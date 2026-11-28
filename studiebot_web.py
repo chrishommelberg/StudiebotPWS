@@ -30,7 +30,8 @@ MODELLEN = ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
 ZOEK_TOOL = types.Tool(google_search=types.GoogleSearch())
 LIVE_ZOEKEN = str(geheim("LIVE_ZOEKEN") or "").lower() == "ja"  # alleen aan met een betaald Gemini-account
 TOP_N = 3     # aantal opleidingen met uitleg
-EXTRA_N = 20  # aantal extra opleidingen (alleen naam en score)
+EXTRA_N = 25  # maximaal aantal extra opleidingen (alleen naam en score)
+MIN_SCORE_EXTRA = 60  # extra opleidingen onder deze score worden niet getoond
 
 
 def _bronnen_uit(response):
@@ -489,16 +490,23 @@ Match: X/100
 Let op: (alleen invullen als er een belangrijk aandachtspunt is, zoals een tussenstap of een
 mogelijk nadeel; laat deze regel anders weg)
 
-De score X is een geheel getal van 0 tot 100 en moet eerlijk verschillen tussen de opleidingen:
-gebruik de hele schaal, geef geen gelijke scores en geef niet alles een score boven de 90.
+De score X is een geheel getal van 0 tot 100 en geeft aan hoe goed de opleiding past. Gebruik deze schaal:
+- 90-100: uitstekende match
+- 75-89: zeer goede match
+- 65-74: goede match
+- 60-64: redelijke match
+Een opleiding die prima past krijgt dus altijd minimaal 65. De opleidingen in de top {TOP_N} passen
+allemaal goed en krijgen daarom een score van minimaal 75. De scores liggen dicht bij elkaar
+(meestal 2 tot 8 punten verschil tussen opeenvolgende opleidingen), maar zijn nooit gelijk.
 Schrijf voor de eerste koptekst geen inleiding.
 
 Zet na de laatste opleiding op een nieuwe regel precies deze regel: ---OVERIG---
-Geef daarna nog {EXTRA_N} andere bestaande Nederlandse opleidingen op het gekozen niveau
-(het niveau-eis uit BELANGRIJK 1 geldt ook hier), van hoge naar lage score. Alleen naam en score,
-één per regel, in dit formaat:
+Noem daarna alle andere bestaande Nederlandse opleidingen op het gekozen niveau (het niveau-eis uit
+BELANGRIJK 1 geldt ook hier) die minstens een score van {MIN_SCORE_EXTRA} krijgen, maximaal {EXTRA_N}, van hoge naar
+lage score. Is er maar een klein aantal passend, noem er dan minder. Verzin geen opleidingen om de lijst
+te vullen en noem nooit een opleiding onder de {MIN_SCORE_EXTRA}. Alleen naam en score, één per regel, in dit formaat:
 Naam van de opleiding | score
-Elke score is een geheel getal van 0 tot 100 en ligt niet hoger dan de laagste score uit de top {TOP_N}.
+Elke score is een geheel getal van {MIN_SCORE_EXTRA} tot 100 en ligt niet hoger dan de laagste score uit de top {TOP_N}.
 Geen uitleg, geen opsommingstekens en geen extra tekst in deze lijst.
 
 Schrijfstijl: zakelijk en direct. Geen complimenten, geen uitroeptekens, geen emoji's en geen
@@ -621,7 +629,9 @@ jaar verschillen, en dat de leerling dit altijd moet checken op de officiële we
     for regel in overig_tekst.split("\n"):
         m2 = re.match(r'^\s*[-*]?\s*(.+?)\s*\|\s*(\d{1,3})\s*%?\s*$', regel)
         if m2:
-            overig.append((m2.group(1).strip("* "), max(0, min(100, int(m2.group(2))))))
+            sc = max(0, min(100, int(m2.group(2))))
+            if sc >= MIN_SCORE_EXTRA:
+                overig.append((m2.group(1).strip("* "), sc))
     if overig:
         items = "".join(f'<div class="overig-item"><span>{html.escape(n)}</span><span class="overig-score">{sc}</span></div>'
                         for n, sc in overig[:EXTRA_N + 5])
